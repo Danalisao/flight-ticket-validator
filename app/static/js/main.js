@@ -1,170 +1,147 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const fileInput = document.getElementById('file-upload');
+    // Elements
+    const fileUpload = document.getElementById('file-upload');
     const fileName = document.getElementById('file-name');
-    const validateButton = document.getElementById('validate-button');
-    const results = document.getElementById('results');
-    const loading = document.getElementById('loading');
-    const validationResults = document.getElementById('validationResults');
-    const errorMessages = document.getElementById('errorMessages');
+    const validateBtn = document.getElementById('validate-btn');
+    const resultsModal = document.getElementById('results-modal');
+    const closeModalBtn = document.getElementById('close-modal');
+    const validationStatus = document.getElementById('validation-status');
+    const ticketDetails = document.getElementById('ticket-details');
 
-    // Mise à jour du nom de fichier
-    fileInput.addEventListener('change', function(e) {
+    // File upload handling
+    fileUpload.addEventListener('change', function(e) {
         const file = e.target.files[0];
-        if (file) {
-            fileName.textContent = file.name;
-        } else {
-            fileName.textContent = 'Aucun fichier choisi';
-        }
+        fileName.textContent = file ? file.name : 'No file selected';
     });
 
-    // Validation du billet
-    validateButton.addEventListener('click', function() {
-        const file = fileInput.files[0];
+    // Drag and drop handling
+    const dropZone = document.querySelector('label[for="file-upload"]');
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, highlight, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, unhighlight, false);
+    });
+
+    function highlight(e) {
+        dropZone.classList.add('border-blue-500', 'bg-blue-50');
+    }
+
+    function unhighlight(e) {
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+    }
+
+    dropZone.addEventListener('drop', handleDrop, false);
+
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const file = dt.files[0];
+        fileUpload.files = dt.files;
+        fileName.textContent = file.name;
+    }
+
+    // Validation button handling
+    validateBtn.addEventListener('click', async function() {
+        const file = fileUpload.files[0];
         if (!file) {
-            showError('Veuillez sélectionner un fichier');
-            return;
-        }
-        
-        // Check file type
-        const validTypes = ['image/jpeg', 'image/png', 'application/pdf'];
-        if (!validTypes.includes(file.type)) {
-            showError('Format de fichier non supporté. Utilisez JPEG, PNG ou PDF');
+            showError('Please select a file first');
             return;
         }
 
-        // Check file size (10MB max)
-        if (file.size > 10 * 1024 * 1024) {
-            showError('Le fichier est trop volumineux (maximum 10MB)');
+        // Check file type
+        if (!file.type.match(/^image\/.+|application\/pdf$/)) {
+            showError('Only images and PDF files are supported');
             return;
         }
 
         const formData = new FormData();
-        formData.append('file', file);
-        formData.append('use_amadeus', document.getElementById('useAmadeus').checked);
+        formData.append('ticket_image', file);
 
-        const clearCache = document.getElementById('clearCacheBeforeValidation').checked;
-        
-        const processValidation = () => {
-            showLoading();
+        // Get checkbox values
+        const useAmadeus = document.getElementById('amadeus-check').checked;
+        const clearCache = document.getElementById('cache-clear').checked;
 
-            fetch('/api/validate', {
+        try {
+            // Clear cache if requested
+            if (clearCache) {
+                await fetch('/api/clear-cache', {
+                    method: 'POST'
+                });
+            }
+
+            // Show loading state
+            validateBtn.disabled = true;
+            validateBtn.innerHTML = '<span class="inline-block animate-spin mr-2">↻</span> Validating...';
+
+            // Send validation request
+            const response = await fetch('/api/validate', {
                 method: 'POST',
                 body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                hideLoading();
-                displayResults(data);
-            })
-            .catch(error => {
-                hideLoading();
-                showError('Une erreur est survenue lors de la validation');
-                console.error('Error:', error);
             });
-        };
 
-        if (clearCache) {
-            fetch('/api/clear-cache', {
-                method: 'POST'
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    processValidation();
-                } else {
-                    throw new Error(data.message);
-                }
-            })
-            .catch(error => {
-                showError('Erreur lors du vidage du cache');
-                console.error('Error:', error);
-            });
-        } else {
-            processValidation();
+            const result = await response.json();
+
+            // Display results
+            showResults(result);
+        } catch (error) {
+            showError('An error occurred during validation');
+            console.error('Error:', error);
+        } finally {
+            // Reset button state
+            validateBtn.disabled = false;
+            validateBtn.textContent = 'Validate Ticket';
         }
     });
 
-    function showLoading() {
-        results.classList.remove('hidden');
-        loading.classList.remove('hidden');
-        validationResults.classList.add('hidden');
-    }
+    // Modal handling
+    closeModalBtn.addEventListener('click', function() {
+        resultsModal.classList.add('hidden');
+    });
 
-    function hideLoading() {
-        loading.classList.add('hidden');
-        validationResults.classList.remove('hidden');
-    }
+    function showResults(result) {
+        // Update validation status
+        validationStatus.innerHTML = result.is_valid
+            ? '<div class="bg-green-100 text-green-800 p-4 rounded-lg">✓ Ticket is valid</div>'
+            : '<div class="bg-red-100 text-red-800 p-4 rounded-lg">✗ Ticket validation failed</div>';
 
-    function displayResults(data) {
-        // Update status banner
-        const statusBanner = document.getElementById('statusBanner');
-        if (data.is_valid) {
-            statusBanner.className = 'rounded-md bg-green-50 p-4';
-            statusBanner.innerHTML = `
-                <div class="flex">
-                    <div class="ml-3">
-                        <p class="text-sm font-medium text-green-800">Billet valide</p>
-                    </div>
-                </div>
-            `;
-        } else {
-            statusBanner.className = 'rounded-md bg-yellow-50 p-4';
-            statusBanner.innerHTML = `
-                <div class="flex">
-                    <div class="ml-3">
-                        <p class="text-sm font-medium text-yellow-800">Billet invalide</p>
-                    </div>
-                </div>
-            `;
+        // Update ticket details
+        let detailsHTML = '';
+        if (result.extracted_info) {
+            detailsHTML += '<h3 class="font-semibold mb-2">Extracted Information:</h3>';
+            for (const [key, value] of Object.entries(result.extracted_info)) {
+                detailsHTML += `<div class="mb-1"><span class="font-medium">${key}:</span> ${value}</div>`;
+            }
         }
-
-        // Update flight details
-        const info = data.extracted_info || {};
-        document.getElementById('passengerName').textContent = info.passenger_name || 'Non trouvé';
-        document.getElementById('flightNumber').textContent = info.flight_number || 'Non trouvé';
-        document.getElementById('departureDate').textContent = info.departure_date || 'Non trouvé';
-        document.getElementById('departure').textContent = formatLocation(info.departure);
-        document.getElementById('arrival').textContent = formatLocation(info.arrival);
-        document.getElementById('ticketNumber').textContent = info.ticket_number || 'Non trouvé';
-
-        // Display errors if any
-        const errorList = document.getElementById('errorList');
-        errorList.innerHTML = '';
-        
-        if (data.errors && data.errors.length > 0) {
-            errorMessages.classList.remove('hidden');
-            data.errors.forEach(error => {
-                const li = document.createElement('li');
-                li.textContent = error;
-                errorList.appendChild(li);
+        if (result.errors && result.errors.length > 0) {
+            detailsHTML += '<h3 class="font-semibold mt-4 mb-2 text-red-600">Errors:</h3>';
+            detailsHTML += '<ul class="list-disc list-inside">';
+            result.errors.forEach(error => {
+                detailsHTML += `<li class="text-red-600">${error}</li>`;
             });
-        } else {
-            errorMessages.classList.add('hidden');
+            detailsHTML += '</ul>';
         }
-    }
+        ticketDetails.innerHTML = detailsHTML;
 
-    function formatLocation(location) {
-        if (!location) return 'Non trouvé';
-        const parts = [];
-        if (location.city) parts.push(location.city);
-        if (location.country) parts.push(location.country);
-        if (location.airport_code) parts.push(`(${location.airport_code})`);
-        return parts.length > 0 ? parts.join(' ') : 'Non trouvé';
+        // Show modal
+        resultsModal.classList.remove('hidden');
+        resultsModal.classList.add('flex');
     }
 
     function showError(message) {
-        results.classList.remove('hidden');
-        loading.classList.add('hidden');
-        validationResults.classList.remove('hidden');
-        
-        const statusBanner = document.getElementById('statusBanner');
-        statusBanner.className = 'rounded-md bg-red-50 p-4';
-        statusBanner.innerHTML = `
-            <div class="flex">
-                <div class="ml-3">
-                    <p class="text-sm font-medium text-red-800">${message}</p>
-                </div>
-            </div>
-        `;
+        validationStatus.innerHTML = `<div class="bg-red-100 text-red-800 p-4 rounded-lg">${message}</div>`;
+        ticketDetails.innerHTML = '';
+        resultsModal.classList.remove('hidden');
+        resultsModal.classList.add('flex');
     }
 });
