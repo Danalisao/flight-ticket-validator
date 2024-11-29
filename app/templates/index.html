@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Ticket Validator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Animation for page transitions */
+        .fade-in {
+            animation: fadeIn ease 1s;
+            -webkit-animation: fadeIn ease 1s;
+            -moz-animation: fadeIn ease 1s;
+            -o-animation: fadeIn ease 1s;
+            -ms-animation: fadeIn ease 1s;
+        }
+
+        @keyframes fadeIn {
+            0% {opacity:0;}
+            100% {opacity:1;}
+        }
+
+        @-moz-keyframes fadeIn {
+            0% {opacity:0;}
+            100% {opacity:1;}
+        }
+
+        @-webkit-keyframes fadeIn {
+            0% {opacity:0;}
+            100% {opacity:1;}
+        }
+
+        @-o-keyframes fadeIn {
+            0% {opacity:0;}
+            100% {opacity:1;}
+        }
+
+        @-ms-keyframes fadeIn {
+            0% {opacity:0;}
+            100% {opacity:1;}
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-indigo-50 fade-in">
+    <div class="w-full max-w-md bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="bg-gradient-to-r from-blue-500 to-indigo-600 p-6 text-center">
+            <h1 class="text-2xl font-bold text-white">Flight Ticket Validator</h1>
+            <p class="text-sm text-blue-100 mt-2">Validate your flight tickets quickly and easily</p>
+        </div>
+
+        <div class="p-6 space-y-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Upload Ticket</label>
+                <div class="flex items-center justify-center w-full">
+                    <label for="file-upload" class="flex flex-col w-full h-32 border-4 border-dashed hover:bg-gray-100 hover:border-blue-300 group transition duration-300 cursor-pointer">
+                        <div class="flex flex-col items-center justify-center pt-7">
+                            <svg class="w-10 h-10 text-gray-400 group-hover:text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            <p class="pt-1 text-sm text-gray-400 group-hover:text-blue-500">Select a file or drag and drop</p>
+                            <span id="file-name" class="text-xs text-gray-500 mt-2">No file selected</span>
+                        </div>
+                        <input id="file-upload" type="file" class="hidden" accept="image/*,.pdf" />
+                    </label>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div class="flex items-center">
+                    <input id="amadeus-check" type="checkbox" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="amadeus-check" class="ml-2 block text-sm text-gray-900">
+                        Verify with Amadeus
+                    </label>
+                </div>
+                <div class="flex items-center">
+                    <input id="cache-clear" type="checkbox" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="cache-clear" class="ml-2 block text-sm text-gray-900">
+                        Clear cache before validation
+                    </label>
+                </div>
+            </div>
+
+            <button id="validate-btn" class="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-3 rounded-lg hover:opacity-90 transition duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50" aria-label="Validate Ticket">
+                Validate Ticket
+            </button>
+        </div>
+    </div>
+
+    <!-- Results Modal -->
+    <div id="results-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-xl shadow-xl p-6">
+            <div class="text-center">
+                <h2 id="modal-title" class="text-2xl font-bold text-gray-900 mb-4">Validation Results</h2>
+                <div id="validation-status" class="mb-4 p-3 rounded-lg"></div>
+                <div id="ticket-details" class="space-y-3 text-left"></div>
+                <button id="close-modal" class="mt-6 w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition duration-300" aria-label="Close Modal">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
