@@ -1,121 +1,203 @@
 import logging
+import re
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Optional, Tuple
 from .amadeus_service import AmadeusService
 from .ocr_service import extract_ticket_info, clear_cache as clear_ocr_cache
+from PIL import Image
+import io
+from werkzeug.datastructures import FileStorage
 
+# Configure logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class ValidationService:
     def __init__(self):
         self.amadeus_service = AmadeusService()
 
-    def validate_ticket(self, image) -> Dict:
+    def validate_ticket(self, file: FileStorage) -> Dict:
         """
         Validate a flight ticket by extracting information and verifying with Amadeus
         
         Args:
-            image: PIL Image object of the ticket
+            file: FileStorage object containing the ticket image
             
         Returns:
             Dict containing validation results and extracted information
         """
         try:
-            # Step 1: Extract ticket information using OCR
-            extracted_info = extract_ticket_info(image)
-            if not extracted_info:
-                return {
-                    "is_valid": False,
-                    "errors": ["Impossible d'extraire les informations du billet"],
-                    "extracted_info": None,
-                    "flight_info": None
-                }
-
-            # Step 2: Validate extracted information format
-            validation_errors = self._validate_extracted_info(extracted_info)
-            if validation_errors:
-                return {
-                    "is_valid": False,
-                    "errors": validation_errors,
-                    "extracted_info": extracted_info,
-                    "flight_info": None
-                }
-
-            # Step 3: Validate flight with Amadeus
-            flight_validation = self.amadeus_service.validate_flight(extracted_info)
+            logger.info(f"Starting validation for file: {file.filename}")
             
-            # Step 4: Get additional airport information
-            if flight_validation["is_valid"]:
-                departure_info = self.amadeus_service.get_airport_info(
-                    extracted_info["departure"]["iata_code"]
-                )
-                arrival_info = self.amadeus_service.get_airport_info(
-                    extracted_info["arrival"]["iata_code"]
-                )
+            # Check file content type
+            if not file.content_type:
+                logger.error("No content type provided")
+                return {
+                    "is_valid": False,
+                    "errors": ["Invalid file type"],
+                    "extracted_info": None
+                }
                 
-                if departure_info:
-                    extracted_info["departure"].update(departure_info)
-                if arrival_info:
-                    extracted_info["arrival"].update(arrival_info)
+            if not file.content_type.startswith(('image/', 'application/pdf')):
+                logger.error(f"Invalid content type: {file.content_type}")
+                return {
+                    "is_valid": False,
+                    "errors": ["Only images and PDF files are supported"],
+                    "extracted_info": None
+                }
 
+            # Convert FileStorage to PIL Image
+            try:
+                image_bytes = file.read()
+                image = Image.open(io.BytesIO(image_bytes))
+                logger.debug(f"Image opened successfully: {image.format} {image.size}")
+            except Exception as e:
+                logger.error(f"Error opening image: {e}")
+                return {
+                    "is_valid": False,
+                    "errors": ["Could not open the image file"],
+                    "extracted_info": None
+                }
+
+            # Validate image
+            image_validation_result = validate_image(image)
+            if not image_validation_result[0]:
+                return {
+                    "is_valid": False,
+                    "errors": [image_validation_result[2]],
+                    "extracted_info": None
+                }
+
+            # Extracted ticket information is valid, proceed with validation
+            ticket_info = image_validation_result[1]
+
+            # Validate extracted information
+            ticket_validation_result = validate_ticket_info(ticket_info)
+            if not ticket_validation_result[0]:
+                return {
+                    "is_valid": False,
+                    "errors": [ticket_validation_result[2]],
+                    "extracted_info": ticket_info
+                }
+
+            logger.info("Ticket validation successful")
             return {
-                "is_valid": flight_validation["is_valid"],
-                "errors": flight_validation.get("errors", []),
-                "extracted_info": extracted_info,
-                "flight_info": flight_validation.get("details")
+                "is_valid": True,
+                "errors": [],
+                "extracted_info": ticket_info
             }
 
         except Exception as e:
-            logger.error(f"Ticket validation error: {str(e)}")
+            logger.error(f"Validation error: {str(e)}")
             return {
                 "is_valid": False,
-                "errors": ["Erreur lors de la validation du billet"],
-                "extracted_info": None,
-                "flight_info": None
+                "errors": ["Error validating ticket: " + str(e)],
+                "extracted_info": None
             }
 
-    def _validate_extracted_info(self, extracted_info: Dict) -> List[str]:
-        """
-        Validate the format and presence of required fields in extracted information
-        
-        Args:
-            extracted_info: Dictionary containing extracted ticket information
-            
-        Returns:
-            List of validation error messages (empty if valid)
-        """
-        errors = []
-        
-        # Check required fields
-        if not extracted_info.get("passenger_name"):
-            errors.append("Nom du passager manquant")
-            
-        if not extracted_info.get("flight_number"):
-            errors.append("Numéro de vol manquant")
-            
-        if not extracted_info.get("departure_date"):
-            errors.append("Date de départ manquante")
-        else:
-            try:
-                # Validate date format
-                datetime.strptime(extracted_info["departure_date"], "%Y-%m-%d")
-            except ValueError:
-                errors.append("Format de date invalide")
-        
-        # Check departure information
-        departure = extracted_info.get("departure", {})
-        if not departure or not departure.get("iata_code"):
-            errors.append("Informations de départ manquantes")
-            
-        # Check arrival information
-        arrival = extracted_info.get("arrival", {})
-        if not arrival or not arrival.get("iata_code"):
-            errors.append("Informations d'arrivée manquantes")
-            
-        return errors
-
     def clear_cache(self):
-        """Clear all service caches"""
-        self.amadeus_service.clear_cache()
-        clear_ocr_cache()
-        logger.info("All service caches cleared")
+        """Clear the OCR cache"""
+        try:
+            clear_ocr_cache()
+            return {"status": "success", "message": "Cache cleared successfully"}
+        except Exception as e:
+            logger.error(f"Cache clear error: {str(e)}")
+            return {"status": "error", "message": str(e)}
+
+def validate_image(image: Image.Image) -> Tuple[bool, Dict, Optional[str]]:
+    """
+    Validate the uploaded image and extract ticket information
+    
+    Args:
+        image: PIL Image object
+        
+    Returns:
+        Tuple of (success, result_dict, error_message)
+    """
+    try:
+        # Basic image validation
+        if not isinstance(image, Image.Image):
+            return False, {}, "Invalid image format"
+            
+        # Check image dimensions
+        if image.size[0] < 100 or image.size[1] < 100:
+            return False, {}, "Image too small - minimum size is 100x100 pixels"
+            
+        if image.size[0] > 4000 or image.size[1] > 4000:
+            return False, {}, "Image too large - maximum size is 4000x4000 pixels"
+            
+        # Extract ticket information
+        logger.info("Extracting ticket information")
+        ticket_info = extract_ticket_info(image)
+        
+        if not ticket_info:
+            return False, {}, "Could not extract information from ticket. Please ensure the image is clear and contains visible ticket information."
+            
+        # Validate extracted information
+        validation_result = validate_ticket_info(ticket_info)
+        if not validation_result[0]:
+            return validation_result
+            
+        return True, ticket_info, None
+        
+    except Exception as e:
+        logger.error(f"Image validation error: {str(e)}")
+        return False, {}, f"Error processing image: {str(e)}"
+
+def validate_ticket_info(ticket_info: Dict) -> Tuple[bool, Dict, Optional[str]]:
+    """
+    Validate extracted ticket information
+    
+    Args:
+        ticket_info: Dictionary containing ticket information
+        
+    Returns:
+        Tuple of (success, ticket_info, error_message)
+    """
+    try:
+        # Check required fields
+        required_fields = ['passenger_name', 'flight_number', 'departure_date', 'departure', 'arrival']
+        missing_fields = [field for field in required_fields if not ticket_info.get(field)]
+        
+        if missing_fields:
+            return False, ticket_info, f"Missing required information: {', '.join(missing_fields)}"
+            
+        # Validate passenger name format (LASTNAME/FIRSTNAME)
+        if not re.match(r'^[A-Z]+/[A-Z]+$', ticket_info['passenger_name']):
+            return False, ticket_info, "Invalid passenger name format. Expected LASTNAME/FIRSTNAME"
+            
+        # Validate flight number format (2 letters followed by 1-4 digits)
+        if not re.match(r'^[A-Z]{2}\d{1,4}$', ticket_info['flight_number']):
+            return False, ticket_info, "Invalid flight number format. Expected airline code (2 letters) followed by 1-4 digits"
+            
+        # Validate date format and value
+        try:
+            departure_date = datetime.strptime(ticket_info['departure_date'], '%Y-%m-%d')
+            if departure_date < datetime(2000, 1, 1):  # Basic sanity check
+                return False, ticket_info, "Invalid departure date - too old"
+        except ValueError:
+            return False, ticket_info, "Invalid date format. Expected YYYY-MM-DD"
+            
+        # Validate location information
+        for location_type in ['departure', 'arrival']:
+            location = ticket_info[location_type]
+            if not isinstance(location, dict):
+                return False, ticket_info, f"Invalid {location_type} location format"
+                
+            # Check required location fields
+            required_location_fields = ['city', 'country', 'iata_code']
+            missing_location_fields = [field for field in required_location_fields if not location.get(field)]
+            
+            if missing_location_fields:
+                return False, ticket_info, f"Missing {location_type} location information: {', '.join(missing_location_fields)}"
+                
+            # Validate IATA code format (3 uppercase letters)
+            if not re.match(r'^[A-Z]{3}$', location['iata_code']):
+                return False, ticket_info, f"Invalid {location_type} IATA code format. Expected 3 uppercase letters"
+        
+        # All validations passed
+        return True, ticket_info, None
+        
+    except Exception as e:
+        logger.error(f"Ticket validation error: {str(e)}")
+        return False, ticket_info, f"Error validating ticket information: {str(e)}"
